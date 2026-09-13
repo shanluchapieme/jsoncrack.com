@@ -7,14 +7,19 @@
 // or hand-copied.
 
 import { useEffect, useMemo, useState } from "react";
-// The <JSONCrack> canvas IS the renderer -- this is the actual forked jsoncrack-react
-// component. It was wrongly suspected of being broken during debugging; the real bug
-// was a `loading` state defaulting to false (fixed below), which crashed EVERY view,
-// list or canvas, on first render before any fetch completed. With that fixed, and a
-// LEAN projection fed to the canvas (its automatic JSON-tree layout treats every key
-// as a node, so the full richly-annotated objects were too deep and hung its ELK
-// layout engine), the real visual graph renders correctly.
-import { JSONCrack, type NodeData } from "jsoncrack-react";
+// JSONCrack (the actual forked jsoncrack-react component) is a generic JSON
+// structure viewer -- it renders every node as an identical gray box of
+// field names because it has no concept of "this is a PRODUCT, that's a
+// MARKET_MOMENT". That's why the earlier canvas was unreadable: it was never
+// a bug, it was the wrong tool for a domain object graph with real typed
+// semantics. TypedGraph.tsx (Cytoscape) replaces it here with nodes we draw
+// ourselves -- icon + real display name + a colored state pill, edges styled
+// by whether the relationship is proven or still a candidate. The forked
+// jsoncrack-react package itself stays in the monorepo (see
+// /UPSTREAM_LINEAGE.md) for lineage/license compliance; this app just no
+// longer uses its rendering component for the graph views.
+import { TypedGraphCanvas, TypedCardGrid, type GraphNode } from "./TypedGraph";
+import { classMeta, stateColor, TOMATO, IVORY, BLACK } from "./visualLanguage";
 
 function NodeList({ nodes, onSelect }: { nodes: any[]; onSelect: (n: any) => void }) {
   const byClass: Record<string, any[]> = {};
@@ -26,7 +31,7 @@ function NodeList({ nodes, onSelect }: { nodes: any[]; onSelect: (n: any) => voi
     <div style={{ padding: 12, overflowY: "auto", height: "100%" }}>
       {Object.entries(byClass).map(([cls, list]) => (
         <div key={cls} style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, letterSpacing: 1, color: "#ff5a3c", marginBottom: 6 }}>{cls} ({list.length})</div>
+          <div style={{ fontSize: 11, letterSpacing: 1, color: "#ff5a3c", marginBottom: 6 }}>{classMeta(cls).icon} {classMeta(cls).label} ({list.length})</div>
           {list.map((n) => (
             <div
               key={n.node_id || n.canary_id}
@@ -34,10 +39,12 @@ function NodeList({ nodes, onSelect }: { nodes: any[]; onSelect: (n: any) => voi
               style={{
                 padding: "6px 10px", marginBottom: 4, background: "#17171a", borderRadius: 4,
                 cursor: "pointer", fontSize: 13, border: "1px solid #262626",
+                display: "flex", alignItems: "center", gap: 6,
               }}
               onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#ff5a3c")}
               onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#262626")}
             >
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: stateColor(n.state || n.activation_state), display: "inline-block", flexShrink: 0 }} />
               {n.display_name || n.category_label} <span style={{ color: "#888", fontSize: 11 }}>-- {n.state || n.activation_state}</span>
             </div>
           ))}
@@ -48,43 +55,8 @@ function NodeList({ nodes, onSelect }: { nodes: any[]; onSelect: (n: any) => voi
 }
 
 const API = "http://localhost:4127";
-const TOMATO = "#ff5a3c";
-const IVORY = "#f2ece2";
-const BLACK = "#0b0b0c";
 
 type Tab = "formation" | "canary" | "matrix";
-
-// Human translation of object_class -- fixes "no one knows what they're
-// looking at". Every node in this system carries one of these classes;
-// this is the one place their meaning is spelled out in plain English.
-const CLASS_META: Record<string, { icon: string; label: string; blurb: string }> = {
-  FORMATION: { icon: "◈", label: "Market formation", blurb: "A real product-need combination this system has built a full evidence graph for." },
-  MARKET_MOMENT: { icon: "○", label: "Market moment", blurb: "A stage in the customer journey (ask, find, watch, shop, buy...). Structural -- not a thing that exists on any platform, a grouping we impose to organize real evidence under." },
-  PRODUCT: { icon: "■", label: "Product", blurb: "A real SKU observed in the supply graph -- price/availability are point-in-time snapshots, not a live feed." },
-  RETAILER: { icon: "⌂", label: "Retailer", blurb: "A real retailer surface checked for whether this product is actually answerable/buyable there." },
-  CREATOR: { icon: "☺", label: "Creator", blurb: "A real, resolved handle on a platform -- identity confirmed, not a follower/engagement profile." },
-  VIDEO: { icon: "▶", label: "Video", blurb: "A real piece of content directly navigated to and confirmed to exist." },
-  MACHINE_ROUTE: { icon: "⚙", label: "AI answer observation", blurb: "A real captured response from an AI answer engine (ChatGPT, Gemini, etc.) for this query." },
-  CANARY: { icon: "◉", label: "Search monitor", blurb: "One of Google's 1,133 Trends categories, with a real live/rate-limited/potential observation state." },
-  UNKNOWN: { icon: "?", label: "Open question", blurb: "A real, named gap in what we know -- not a placeholder, an actual unresolved question." },
-  WITNESS: { icon: "→", label: "Proposed next check", blurb: "A concrete, specific action that would resolve an open question -- not yet run." },
-  EVIDENCE_REF: { icon: "≣", label: "Evidence reference", blurb: "A lower-confidence supporting signal, kept separate from proven identity/relationship claims." },
-};
-
-function classMeta(objectClass: string | undefined) {
-  return CLASS_META[objectClass || ""] || { icon: "●", label: objectClass || "Unclassified", blurb: "" };
-}
-
-const STATE_COLOR: Record<string, string> = {
-  EARNED: "#3ecf6e", OBSERVED: "#3ecf6e", LIVE_HEALTHY: "#3ecf6e", IDENTITY_PROVEN: "#3ecf6e", PROVEN: "#3ecf6e",
-  PARTIALLY_EARNED: "#e8b13a", LIVE_RATE_LIMITED: "#e8b13a", PARTIAL: "#e8b13a", CANDIDATE: "#e8b13a",
-  NOT_YET_EARNED: "#5a5a5e", POTENTIAL: "#5a5a5e", UNOBSERVED: "#3a3a3d", UNRESOLVED: "#5a5a5e",
-  BLOCKED: "#e05a4e", REJECTED: "#e05a4e", LIVE_REJECTED: "#e05a4e", LIVE_INSTRUMENT_FAILED: "#e05a4e",
-  NO_CANARY_ADDRESS: "#2a2a2c",
-};
-function stateColor(s: string | undefined) {
-  return STATE_COLOR[s || ""] || "#777";
-}
 
 function useFetch<T>(url: string | null) {
   const [data, setData] = useState<T | null>(null);
@@ -163,6 +135,8 @@ function ObjectInspector({ node, onClose }: { node: any; onClose: () => void }) 
             ? `No real evidence has been gathered for this ${meta.label.toLowerCase()} yet -- a genuine gap, not an assumption.`
             : state === "PARTIALLY_EARNED" || state === "PARTIAL"
             ? `Some real evidence exists for this ${meta.label.toLowerCase()}, but it doesn't fully resolve yet -- see Known / Unknown below.`
+            : state === "UNRESOLVED" || state === "BLOCKED" || state === "REJECTED"
+            ? `This ${meta.label.toLowerCase()} was checked and could not be resolved (${state.toLowerCase()}) -- a real, named gap, not a missing check.`
             : `This ${meta.label.toLowerCase()} has real, observed evidence backing it -- see Known below.`)}
       </Panel>
       <Panel title="Source / platform">{(node.platform || []).join(", ") || "n/a"}</Panel>
@@ -216,18 +190,7 @@ function FormationView() {
   if (loading || !graph) return <div style={{ padding: 20 }}>Loading real formation graph...</div>;
   if (error) return <div style={{ padding: 20, color: TOMATO }}>Error: {error}</div>;
 
-  // LEAN projection for the canvas only -- same array order/length as graph.nodes,
-  // so path-based click resolution below still finds the FULL real object.
-  const leanForRender = {
-    nodes: graph.nodes.map((n: any) => ({ id: n.node_id, class: n.object_class, name: n.display_name, state: n.state })),
-  };
-
-  const handleCanvasNodeClick = (n: NodeData) => {
-    const path = n.path || [];
-    if (path[0] === "nodes" && typeof path[1] === "number") {
-      setSelected(graph.nodes[path[1]]);
-    }
-  };
+  const rootId = graph.nodes.find((n: any) => n.object_class === "FORMATION")?.node_id;
 
   return (
     <div style={{ display: "flex", height: "calc(100vh - 110px)" }}>
@@ -243,7 +206,7 @@ function FormationView() {
         </div>
         <div style={{ flex: 1 }}>
           {useCanvas
-            ? <JSONCrack json={leanForRender} theme="dark" onNodeClick={handleCanvasNodeClick} style={{ height: "100%" }} />
+            ? <TypedGraphCanvas nodes={graph.nodes as GraphNode[]} edges={graph.edges} onNodeClick={setSelected} rootId={rootId} />
             : <NodeList nodes={graph.nodes} onSelect={setSelected} />}
         </div>
       </div>
@@ -266,13 +229,6 @@ function CanaryView() {
   const { data, loading, error } = useFetch<any>(url);
   const [selected, setSelected] = useState<any>(null);
 
-  const handleCanvasNodeClick = (n: NodeData) => {
-    const path = n.path || [];
-    if (path[0] === "nodes" && typeof path[1] === "number" && data) {
-      setSelected(data.nodes[path[1]]);
-    }
-  };
-
   return (
     <div style={{ display: "flex", height: "calc(100vh - 110px)" }}>
       <div style={{ flex: 1, position: "relative", borderRight: "1px solid #222", display: "flex", flexDirection: "column" }}>
@@ -293,23 +249,19 @@ function CanaryView() {
           ))}
           <input placeholder="search label or id" value={q} onChange={(e) => setQ(e.target.value)} style={{ background: "#1a1a1c", border: "1px solid #333", color: IVORY, borderRadius: 4, padding: "4px 8px" }} />
           <button onClick={() => setUseCanvas((v) => !v)} style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${TOMATO}`, color: TOMATO, borderRadius: 4, padding: "2px 8px", fontSize: 11, cursor: "pointer" }}>
-            {useCanvas ? "switch to list" : "switch to graph canvas"}
+            {useCanvas ? "switch to grouped list" : "switch to card grid"}
           </button>
         </div>
         {data && (
           <div style={{ padding: 8, fontSize: 12, color: "#aaa" }}>
             total_canonical_categories={data.total_canonical_categories} | total_contracts={data.total_contracts} | reconciliation_pass={String(data.reconciliation_pass)} | matched={data.matched} | showing {data.returned}
+            <span style={{ marginLeft: 8, color: "#666" }}>-- these are independent addresses, not a network, so they're shown as a card grid, not a fake graph.</span>
           </div>
         )}
         <div style={{ flex: 1, position: "relative" }}>
           {loading && <div style={{ padding: 20 }}>Loading...</div>}
           {error && <div style={{ padding: 20, color: TOMATO }}>Error: {error}</div>}
-          {data && useCanvas && (
-            <JSONCrack
-              json={{ nodes: data.nodes.map((n: any) => ({ id: n.canary_id, category: n.category_label, state: n.activation_state })) }}
-              theme="dark" onNodeClick={handleCanvasNodeClick} style={{ height: "100%" }} maxRenderableNodes={500}
-            />
-          )}
+          {data && useCanvas && <TypedCardGrid nodes={data.nodes as GraphNode[]} onSelect={setSelected} />}
           {data && !useCanvas && <NodeList nodes={data.nodes} onSelect={setSelected} />}
         </div>
       </div>

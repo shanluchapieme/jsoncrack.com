@@ -43,12 +43,18 @@ importers:
 
   apps/market-explorer:
     dependencies:
+      cytoscape:
+        specifier: ^3.34.3
+        version: 3.34.3
       jsoncrack-react:
         specifier: workspace:*
         version: link:../../packages/jsoncrack-react
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-cytoscapejs:
+        specifier: ^2.0.0
+        version: 2.0.0(cytoscape@3.34.3)(react@18.3.1)
       react-dom:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
@@ -2328,6 +2334,10 @@ packages:
     resolution: {integrity: sha512-fENSKrbIfvX83uHxruP3S/9GizirvgT66vHhgKHOCTVHK+22Xpud/vttg5c5IifRl+6Gom/GjE+ZSXJKf0DMTA==}
     engines: {node: '>=10'}
 
+  cytoscape@3.34.3:
+    resolution: {integrity: sha512-yfYGhRcGAntq6YBD583j4n0Eg3jIxvWmZtz/5uz9UYkeIStSlMxuUja+ec5j3iBD8nv1rwaOAYMW09tBdkSeaQ==}
+    engines: {node: '>=0.10'}
+
   d3-path@3.1.0:
     resolution: {integrity: sha512-p3KP5HCf/bvjBSSKuXid6Zqijx7wIfNW+J/maPs+iwR35at5JCbLUT0LzF1cnjbCHWhqzQTIN2Jpe8pRebIEFQ==}
     engines: {node: '>=12'}
@@ -3783,6 +3793,12 @@ packages:
     resolution: {integrity: sha512-z1VwkAAJ5d8QybDRuYIXTE41RxGr5GYsv1bQhbOBE8cMfoZQZpcF0odL64vdgrQVzat2jayedj1GoYi80FWcbA==}
     peerDependencies:
       react: '>= 16.8.0'
+
+  react-cytoscapejs@2.0.0:
+    resolution: {integrity: sha512-t3SSl1DQy7+JQjN+8QHi1anEJlM3i3aAeydHTsJwmjo/isyKK7Rs7oCvU6kZsB9NwZidzZQR21Vm2PcBLG/Tjg==}
+    peerDependencies:
+      cytoscape: ^3.2.19
+      react: '>=15.0.0'
 
   react-dom@18.3.1:
     resolution: {integrity: sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw==}
@@ -6541,6 +6557,8 @@ snapshots:
 
   ctrl-keys@1.0.6: {}
 
+  cytoscape@3.34.3: {}
+
   d3-path@3.1.0: {}
 
   d3-shape@3.2.0:
@@ -8145,6 +8163,12 @@ snapshots:
   react-cool-dimensions@2.0.7(react@19.2.8):
     dependencies:
       react: 19.2.8
+
+  react-cytoscapejs@2.0.0(cytoscape@3.34.3)(react@18.3.1):
+    dependencies:
+      cytoscape: 3.34.3
+      prop-types: 15.8.1
+      react: 18.3.1
 
   react-dom@18.3.1(react@18.3.1):
     dependencies:
