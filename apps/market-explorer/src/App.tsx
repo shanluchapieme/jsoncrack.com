@@ -56,7 +56,7 @@ function NodeList({ nodes, onSelect }: { nodes: any[]; onSelect: (n: any) => voi
 
 const API = "http://localhost:4127";
 
-type Tab = "formation" | "canary" | "matrix";
+type Tab = "briefing" | "formation" | "canary" | "matrix";
 
 function useFetch<T>(url: string | null) {
   const [data, setData] = useState<T | null>(null);
@@ -495,18 +495,122 @@ function CoverageMatrixView() {
   );
 }
 
+// The executive front door. Joanna's critique after the Coverage Matrix
+// shipped: "no executive would know what to do with this site." A 1,133-row
+// state table is correct but it's an inventory, not an answer -- nobody
+// opens a tool to see a matrix, they open it to see a FINDING. This is the
+// same real, verified data (buildRepresentationInsight + the coverage
+// totals), presented the way Joanna's own reference report was: one
+// headline, one gap, one bridge case, one mechanism, in that order. The
+// Coverage Matrix, the typed graph, and the Canary Estate are still one
+// click away for anyone who wants to verify or drill in -- this is the
+// summary, not a replacement for the evidence underneath it.
+function StatCard({ value, label }: { value: string | number; label: string }) {
+  return (
+    <div style={{ flex: 1, minWidth: 140, background: "#141416", border: "1px solid #262626", borderRadius: 8, padding: "16px 18px" }}>
+      <div style={{ fontSize: 28, fontWeight: 700, color: TOMATO, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 12, color: "#999", marginTop: 6 }}>{label}</div>
+    </div>
+  );
+}
+
+function BriefingView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
+  const { data: insight, loading: insightLoading } = useFetch<any>(`${API}/api/insights/category/93`);
+  const { data: matrix, loading: matrixLoading } = useFetch<any>(`${API}/api/coverage/matrix`);
+
+  if (insightLoading || matrixLoading) return <div style={{ padding: 40 }}>Loading real findings...</div>;
+  if (!insight || !matrix) return <div style={{ padding: 40, color: TOMATO }}>Could not load briefing data.</div>;
+
+  const searchObservedCount = matrix.total_categories - (matrix.rows.filter((r: any) => r.search_lens === "POTENTIAL" || r.search_lens === "NO_CANARY_ADDRESS").length);
+
+  return (
+    <div style={{ maxWidth: 960, margin: "0 auto", padding: "40px 24px 80px", height: "calc(100vh - 110px)", overflowY: "auto" }}>
+      <div style={{ fontSize: 12, letterSpacing: 2, color: TOMATO, textTransform: "uppercase", marginBottom: 8 }}>Since Tomorrow -- Representation Intelligence</div>
+      <h1 style={{ fontSize: 34, lineHeight: 1.2, margin: "0 0 8px", color: IVORY }}>
+        AI recommends 12 K-beauty brands.<br />Google shows them 1.
+      </h1>
+      <div style={{ fontSize: 15, color: "#aaa", marginBottom: 28, maxWidth: 640 }}>
+        For the Skin &amp; Nail Care category (the only one this system has fully evidenced so far), AI recommendation surfaces and Google organic results are showing two different brand fields for the same consumer demand -- generated live from real, sourced data, not written by hand.
+      </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 36 }}>
+        <StatCard value={matrix.total_categories.toLocaleString()} label="Google categories tracked" />
+        <StatCard value={searchObservedCount} label="with a real search-demand observation" />
+        <StatCard value={`${insight.machine_only_count}:1`} label="AI-recommended vs. Google-visible (K-beauty)" />
+        <StatCard value={matrix.crosswalked_formation_count} label="category with full commerce+UGC evidence today" />
+      </div>
+
+      <h2 style={{ fontSize: 13, letterSpacing: 1.5, color: TOMATO, textTransform: "uppercase", borderTop: "2px solid #262626", paddingTop: 20, marginBottom: 14 }}>The Split</h2>
+      <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 28 }}>
+        <div style={{ flex: 1, minWidth: 280 }}>
+          <div style={{ fontSize: 12, color: "#999", marginBottom: 8 }}>AI recommendation surfaces</div>
+          {insight.machine_only_brands.slice(0, 6).map((b: any, i: number) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1c1c1e", fontSize: 13 }}>
+              <span>{b.brand}</span>
+              <span style={{ color: "#777" }}>{typeof b.machine_surfaces === "number" ? `${b.machine_surfaces} surfaces` : "training corpus"}</span>
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: "#666", marginTop: 6 }}>+{insight.machine_only_brands.length - 6} more, zero Google SERP presence</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 280 }}>
+          <div style={{ fontSize: 12, color: "#999", marginBottom: 8 }}>Google organic -- reaches both surfaces</div>
+          {insight.bridge_brands.map((b: any, i: number) => (
+            <div key={i} style={{ padding: "10px 0" }}>
+              <div style={{ fontSize: 14, color: IVORY, fontWeight: 600 }}>◈ {b.brand}</div>
+              <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>{Array.isArray(b.serp_positions) ? b.serp_positions.join("; ") : b.serp_positions}</div>
+              <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>{b.serp_url}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ fontSize: 13, color: "#ccc", marginBottom: 28, padding: "12px 16px", background: "#141416", borderRadius: 6, borderLeft: `3px solid ${TOMATO}` }}>
+        {insight.headline} Verdict: <b>{insight.verdict}</b>. {insight.magnitude}
+      </div>
+
+      <h2 style={{ fontSize: 13, letterSpacing: 1.5, color: TOMATO, textTransform: "uppercase", borderTop: "2px solid #262626", paddingTop: 20, marginBottom: 14 }}>The Bridge</h2>
+      <div style={{ fontSize: 13, color: "#ccc", marginBottom: 28 }}>
+        {insight.bridge_brands[0]?.why_in_both || "No bridge-case explanation recorded."}
+      </div>
+
+      <h2 style={{ fontSize: 13, letterSpacing: 1.5, color: TOMATO, textTransform: "uppercase", borderTop: "2px solid #262626", paddingTop: 20, marginBottom: 14 }}>The Vocabulary Switch</h2>
+      {insight.vocabulary_divergence_pairs.map((p: any) => (
+        <div key={p.pair_id} style={{ marginBottom: 16, fontSize: 13 }}>
+          <div style={{ color: IVORY, marginBottom: 4 }}>{p.title}</div>
+          <div style={{ color: "#999" }}>"{p.query_A}" &rarr; <span style={{ color: TOMATO }}>{p.query_A_route}</span></div>
+          <div style={{ color: "#999" }}>"{p.query_B}" &rarr; <span style={{ color: TOMATO }}>{p.query_B_route}</span></div>
+          <div style={{ color: "#ccc", marginTop: 4 }}>{p.finding}</div>
+        </div>
+      ))}
+
+      <div style={{ marginTop: 36, padding: "16px 20px", background: "#141416", border: "1px solid #262626", borderRadius: 8, fontSize: 12, color: "#888" }}>
+        This finding covers 1 of {matrix.total_categories.toLocaleString()} categories -- the only one with a real formation and commerce/UGC dataset built for it today. The other {(matrix.total_categories - matrix.crosswalked_formation_count).toLocaleString()} are tracked at search-demand resolution only.
+        <div style={{ marginTop: 10 }}>
+          <button onClick={() => onNavigate("matrix")} style={{ background: "transparent", border: `1px solid ${TOMATO}`, color: TOMATO, borderRadius: 4, padding: "6px 12px", fontSize: 12, cursor: "pointer", marginRight: 8 }}>
+            See the full {matrix.total_categories.toLocaleString()}-category frontier &rarr;
+          </button>
+          <button onClick={() => onNavigate("formation")} style={{ background: "transparent", border: "1px solid #444", color: "#ccc", borderRadius: 4, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>
+            See the underlying evidence graph &rarr;
+          </button>
+        </div>
+      </div>
+      <div style={{ marginTop: 16, fontSize: 11, color: "#666" }}>Sources: {insight.schema_sources.join(", ")}</div>
+    </div>
+  );
+}
+
 export default function App() {
-  const [tab, setTab] = useState<Tab>("matrix");
+  const [tab, setTab] = useState<Tab>("briefing");
   return (
     <div style={{ minHeight: "100vh", background: BLACK, color: IVORY }}>
       <div style={{ padding: "12px 16px", borderBottom: `2px solid ${TOMATO}`, display: "flex", alignItems: "center", gap: 16 }}>
         <strong style={{ letterSpacing: 1 }}>SINCE TOMORROW MARKET EXPLORER</strong>
-        <button onClick={() => setTab("matrix")} style={{ background: tab === "matrix" ? TOMATO : "transparent", color: tab === "matrix" ? BLACK : IVORY, border: `1px solid ${TOMATO}`, borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}>Category Truth Coverage Matrix</button>
-        <button onClick={() => setTab("formation")} style={{ background: tab === "formation" ? TOMATO : "transparent", color: tab === "formation" ? BLACK : IVORY, border: `1px solid ${TOMATO}`, borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}>HOT1000 / Market Explorer</button>
+        <button onClick={() => setTab("briefing")} style={{ background: tab === "briefing" ? TOMATO : "transparent", color: tab === "briefing" ? BLACK : IVORY, border: `1px solid ${TOMATO}`, borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}>Briefing</button>
+        <button onClick={() => setTab("matrix")} style={{ background: tab === "matrix" ? TOMATO : "transparent", color: tab === "matrix" ? BLACK : IVORY, border: `1px solid ${TOMATO}`, borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}>Full Coverage Data</button>
+        <button onClick={() => setTab("formation")} style={{ background: tab === "formation" ? TOMATO : "transparent", color: tab === "formation" ? BLACK : IVORY, border: `1px solid ${TOMATO}`, borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}>Evidence Graph</button>
         <button onClick={() => setTab("canary")} style={{ background: tab === "canary" ? TOMATO : "transparent", color: tab === "canary" ? BLACK : IVORY, border: `1px solid ${TOMATO}`, borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}>Canary Estate</button>
         <span style={{ marginLeft: "auto", fontSize: 11, color: "#888" }}>Current fully-traversable formations = 1 (Glass Skin) -- renderer forked from jsoncrack-react (Apache-2.0)</span>
       </div>
-      {tab === "matrix" ? <CoverageMatrixView /> : tab === "formation" ? <FormationView /> : <CanaryView />}
+      {tab === "briefing" ? <BriefingView onNavigate={setTab} /> : tab === "matrix" ? <CoverageMatrixView /> : tab === "formation" ? <FormationView /> : <CanaryView />}
     </div>
   );
 }

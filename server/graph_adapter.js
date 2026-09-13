@@ -20,6 +20,53 @@ function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
+// The source file has a pre-existing mojibake artifact (an em-dash mangled
+// by a non-UTF-8 write elsewhere in the pipeline, a known class of bug in
+// this project). Read-only repo law means we don't touch the source file
+// for a cosmetic fix -- just don't surface garbled bytes in our own output.
+function cleanText(s) {
+  return String(s || "").replace(/�/g, "--");
+}
+
+function normBrand(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Real, fresher (2026-09-10) evidence supersedes the stale Sep-1
+// RETAILER_ANSWERABILITY snapshot's flat BOT_BLOCKED/UNRESOLVED read on
+// Target. TARGET_ESTATE_STATE_V2.json was built via DURABLE_SOURCE_BROWSER_
+// EXECUTION (Claude in Chrome, a real logged-in-equivalent browser session --
+// not a bot-detection-bypass proxy): Target's own REDsky product API is
+// still BLOCKED_BOT, but the browser road works and legitimately observed
+// 86 real brand names in Target's beauty assortment as of T1. This lets us
+// replace "we don't know, we're blocked" with a real, evidenced two-sided
+// answer for THIS formation's specific brands -- still honest that absence
+// from an 86-brand crawl is evidence, not proof of non-carriage.
+function getTargetRealityCheck(formationBrandIds) {
+  try {
+    const estate = readJson("data/ops/commerce/TARGET_ESTATE_STATE_V2.json");
+    const observed = estate.brands.brands_t1_observed || [];
+    const observedNorm = new Set(observed.map(normBrand));
+    const present = [];
+    const absent = [];
+    for (const id of formationBrandIds) {
+      (observedNorm.has(normBrand(id)) ? present : absent).push(id);
+    }
+    return {
+      available: true,
+      observed_at: estate._created_at,
+      active_road: estate.road_status.active_road,
+      executor: estate.road_status.executor,
+      redsky_api: cleanText(estate.road_status.redsky_api),
+      total_brands_observed_t1: observed.length,
+      present, absent,
+      source_ref: "data/ops/commerce/TARGET_ESTATE_STATE_V2.json",
+    };
+  } catch (e) {
+    return { available: false };
+  }
+}
+
 /** Section 17: bounded successor parse of already-committed Glass Skin content evidence. */
 function parseContentObjects() {
   const nodes = [];
@@ -122,6 +169,14 @@ function buildFormationGraph() {
   const nodes = [];
   const edges = [];
 
+  const allFormationBrandIds = [...new Set(
+    Object.values(src.market_moments_with_evidence)
+      .flatMap((d) => d.objects || [])
+      .filter((o) => o.object_class === "PRODUCT" && o.brand_id)
+      .map((o) => o.brand_id)
+  )];
+  const targetReality = getTargetRealityCheck(allFormationBrandIds);
+
   const formationNodeId = `FORMATION_${src.formation.formation_id}`;
   nodes.push({
     node_id: formationNodeId,
@@ -210,53 +265,104 @@ function buildFormationGraph() {
         }
         if (obj.object_class === "RETAILER") {
           const retailerNodeId = `RETAILER_${obj.object_id}`;
-          nodes.push({
-            node_id: retailerNodeId,
-            object_id: obj.object_id,
-            object_class: "RETAILER",
-            display_name: obj.object_id,
-            market_moment: [moment],
-            platform: [],
-            market: [src.formation.market_scope],
-            category: [src.formation.category_scope],
-            state: obj.answerability_state === "UNOBSERVABLE" ? "UNRESOLVED" : "OBSERVED",
-            last_observed_at: null,
-            claim_ceiling: obj.answerability_state,
-            source_refs: [obj.evidence_ref],
-            evidence_refs: [],
-            known: [`requirements_resolved=${obj.requirements_resolved}/${obj.requirements_total}`],
-            unknown: obj.requirements_missing ? [`${obj.requirements_missing} requirements unresolved`] : [],
-            expandable: obj.object_id === "TARGET",
-            available_relations: obj.object_id === "TARGET" ? ["HAS_UNKNOWN"] : [],
-          });
+          const isTarget = obj.object_id === "TARGET";
+          const t = isTarget ? targetReality : null;
+
+          let retailerNode;
+          if (isTarget && t && t.available) {
+            // Fresher, real, legitimately-obtained evidence (2026-09-10,
+            // durable browser execution) supersedes the stale Sep-1
+            // BOT_BLOCKED snapshot -- this is a real two-sided finding, not
+            // a forced resolution.
+            retailerNode = {
+              node_id: retailerNodeId,
+              object_id: obj.object_id,
+              object_class: "RETAILER",
+              display_name: obj.object_id,
+              market_moment: [moment],
+              platform: [],
+              market: [src.formation.market_scope],
+              category: [src.formation.category_scope],
+              state: t.present.length > 0 ? "PARTIALLY_EARNED" : "REJECTED",
+              last_observed_at: t.observed_at,
+              claim_ceiling: `${t.executor} via ${t.active_road} confirmed real Target beauty-assortment brands as of ${t.observed_at}; Target's own product API (redsky) remains ${t.redsky_api}, so exact SKU/price confirmation for THIS formation's products is still not achievable via API.`,
+              source_refs: [obj.evidence_ref, t.source_ref],
+              evidence_refs: [],
+              known: [
+                `${t.present.length}/${allFormationBrandIds.length} of this formation's brands confirmed present in Target's real, browser-observed ${t.total_brands_observed_t1}-brand assortment: ${t.present.join(", ") || "none"}`,
+                `Legitimate durable-browser access to Target IS working (${t.active_road}) -- only the product API is blocked, not observation itself.`,
+              ],
+              unknown: [
+                `${t.absent.length}/${allFormationBrandIds.length} of this formation's brands were NOT found in the ${t.total_brands_observed_t1}-brand T1 observation: ${t.absent.join(", ")}. This is real evidence of likely absence, not confirmed non-carriage -- the T1 crawl may not be exhaustive.`,
+              ],
+              expandable: true,
+              available_relations: ["HAS_UNKNOWN"],
+            };
+          } else {
+            retailerNode = {
+              node_id: retailerNodeId,
+              object_id: obj.object_id,
+              object_class: "RETAILER",
+              display_name: obj.object_id,
+              market_moment: [moment],
+              platform: [],
+              market: [src.formation.market_scope],
+              category: [src.formation.category_scope],
+              state: obj.answerability_state === "UNOBSERVABLE" ? "UNRESOLVED" : "OBSERVED",
+              last_observed_at: null,
+              claim_ceiling: obj.answerability_state,
+              source_refs: [obj.evidence_ref],
+              evidence_refs: [],
+              known: [`requirements_resolved=${obj.requirements_resolved}/${obj.requirements_total}`],
+              unknown: obj.requirements_missing ? [`${obj.requirements_missing} requirements unresolved`] : [],
+              expandable: isTarget,
+              available_relations: isTarget ? ["HAS_UNKNOWN"] : [],
+            };
+          }
+          nodes.push(retailerNode);
           edges.push({
             edge_id: `E_${momentNodeId}_REPRESENTED_BY_${retailerNodeId}`,
             from: momentNodeId, relation: "REPRESENTED_BY", to: retailerNodeId,
-            state: obj.answerability_state === "UNOBSERVABLE" ? "REJECTED" : "OBSERVED",
-            observed_at: null, evidence_refs: [obj.evidence_ref],
-            claim_ceiling: obj.answerability_state,
+            state: retailerNode.state === "REJECTED" || retailerNode.state === "UNRESOLVED" ? "REJECTED" : retailerNode.state === "PARTIALLY_EARNED" ? "CANDIDATE" : "OBSERVED",
+            observed_at: retailerNode.last_observed_at, evidence_refs: [obj.evidence_ref],
+            claim_ceiling: retailerNode.claim_ceiling,
           });
 
-          // TARGET overlay: first-class unknown + next-best-witness node (Section 10/11)
+          // TARGET overlay: first-class unknown + next-best-witness node (Section 10/11).
+          // Reframed once real T1 browser evidence existed: the open question is no
+          // longer "is the block permanent" (the browser road already proved it isn't --
+          // it works) -- it's now "is this formation's brand absence from the T1 crawl
+          // real non-carriage or just an incomplete crawl."
           if (obj.object_id === "TARGET") {
             const unknownNodeId = "UNKNOWN_TARGET_ROUTE_BLOCK_PERMANENCE";
             const witnessNodeId = "WITNESS_TARGET_REPROBE";
+            const hasReality = targetReality && targetReality.available;
             nodes.push({
               node_id: unknownNodeId,
               object_id: unknownNodeId,
               object_class: "UNKNOWN",
-              display_name: "Is Target's product-page block permanent or transient?",
+              display_name: hasReality
+                ? "Are the brands this formation needs genuinely absent from Target, or just missed by the T1 crawl?"
+                : "Is Target's product-page block permanent or transient?",
               market_moment: ["FIND", "SHOP", "BUY"],
               platform: ["TARGET"],
               market: [src.formation.market_scope],
               category: [src.formation.category_scope],
-              state: "UNRESOLVED",
-              last_observed_at: null,
-              claim_ceiling: src.target_overlay.claim_ceiling,
-              source_refs: ["data/ops/hot1000/MARKET_FORMATION_GRAPH_GLASS_SKIN_V1.json"],
+              state: hasReality ? "PARTIALLY_EARNED" : "UNRESOLVED",
+              last_observed_at: hasReality ? targetReality.observed_at : null,
+              claim_ceiling: hasReality
+                ? "Real, durable-browser-observed evidence exists that Target's product ACCESS is not blocked (only their API is) -- the remaining question is crawl completeness for this formation's specific brands, not access."
+                : src.target_overlay.claim_ceiling,
+              source_refs: hasReality
+                ? ["data/ops/hot1000/MARKET_FORMATION_GRAPH_GLASS_SKIN_V1.json", targetReality.source_ref]
+                : ["data/ops/hot1000/MARKET_FORMATION_GRAPH_GLASS_SKIN_V1.json"],
               evidence_refs: [],
-              known: [src.target_overlay.answer],
-              unknown: ["Whether a fresh, authorized re-probe would resolve BOT_BLOCKED to a real product/price observation."],
+              known: hasReality
+                ? [src.target_overlay.answer, `Legitimate browser access to Target works (${targetReality.active_road}); ${targetReality.present.join(", ") || "none"} confirmed present.`]
+                : [src.target_overlay.answer],
+              unknown: hasReality
+                ? [`Whether ${targetReality.absent.join(", ")} are truly absent from Target's beauty assortment, or simply outside the T1 crawl's ${targetReality.total_brands_observed_t1}-brand scope.`]
+                : ["Whether a fresh, authorized re-probe would resolve BOT_BLOCKED to a real product/price observation."],
               expandable: true,
               available_relations: ["NEXT_BEST_WITNESS"],
             });
@@ -264,14 +370,16 @@ function buildFormationGraph() {
               node_id: witnessNodeId,
               object_id: witnessNodeId,
               object_class: "WITNESS",
-              display_name: "Re-probe one Target product URL via a fresh authorized session",
+              display_name: hasReality
+                ? `Re-run the durable-browser Target crawl targeting: ${targetReality.absent.join(", ")}`
+                : "Re-probe one Target product URL via a fresh authorized session",
               market_moment: ["FIND", "SHOP", "BUY"],
               platform: ["TARGET"],
               market: [src.formation.market_scope],
               category: [src.formation.category_scope],
               state: "CANDIDATE",
               last_observed_at: null,
-              claim_ceiling: "This witness targets the Target retailer road, NOT the Google category canary domain -- the connected canary controller call below only covers the Google domain today; this witness node is informational (Section 21's own scope law).",
+              claim_ceiling: "This witness targets the Target retailer road via the same legitimate durable-browser-execution method already proven live -- NOT a bot-detection-bypass tool. It is NOT the Google category canary domain -- the connected canary controller call below only covers the Google domain today; this witness node is informational (Section 21's own scope law).",
               source_refs: [],
               evidence_refs: [],
               known: [],
