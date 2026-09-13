@@ -131,7 +131,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/next-witness") {
       const body = await readBody(req);
-      if (!body.category_id) return json(res, 400, { error: "category_id is required (Google category domain only in V1)." });
+      if (body.category_id == null) return json(res, 400, { error: "category_id is required (Google category domain only in V1)." });
       const decision = await runController(body.category_id, body.decision_context || "");
       return json(res, 200, { dry_run: true, side_effect_free: true, decision });
     }

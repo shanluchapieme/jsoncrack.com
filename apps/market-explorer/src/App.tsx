@@ -7,16 +7,14 @@
 // or hand-copied.
 
 import { useEffect, useMemo, useState } from "react";
-// NOTE: jsoncrack-react's <JSONCrack> canvas is imported and its stylesheet is
-// still loaded (see main.tsx) per the upstream-fork mission requirement, but its
-// component is NOT rendered below -- see KNOWN_BLOCKER in the mission return.
-// It was isolated, via a clean minimal-React control render, to fail SILENTLY
-// (no thrown error, no console output) specifically when <JSONCrack> mounts in
-// this environment -- most likely its Web-Worker-based ELK layout engine failing
-// to initialize. A plain, real, clickable list view is used instead so the
-// actual required behavior (click -> inspector -> real controller) is provable
-// today rather than blocked on an unresolved third-party rendering bug.
-import type { NodeData } from "jsoncrack-react";
+// The <JSONCrack> canvas IS the renderer -- this is the actual forked jsoncrack-react
+// component. It was wrongly suspected of being broken during debugging; the real bug
+// was a `loading` state defaulting to false (fixed below), which crashed EVERY view,
+// list or canvas, on first render before any fetch completed. With that fixed, and a
+// LEAN projection fed to the canvas (its automatic JSON-tree layout treats every key
+// as a node, so the full richly-annotated objects were too deep and hung its ELK
+// layout engine), the real visual graph renders correctly.
+import { JSONCrack, type NodeData } from "jsoncrack-react";
 
 function NodeList({ nodes, onSelect }: { nodes: any[]; onSelect: (n: any) => void }) {
   const byClass: Record<string, any[]> = {};
@@ -91,7 +89,7 @@ function ObjectInspector({ node, onClose }: { node: any; onClose: () => void }) 
   if (!node) return null;
 
   const runWitness = async () => {
-    if (!node.category_id) return;
+    if (node.category_id == null) return;
     setWitnessLoading(true);
     try {
       const r = await fetch(`${API}/api/next-witness`, {
@@ -159,19 +157,40 @@ function ObjectInspector({ node, onClose }: { node: any; onClose: () => void }) 
 function FormationView() {
   const { data: graph, loading, error } = useFetch<any>(`${API}/api/formations/qc_c25e12c0b6013c91`);
   const [selected, setSelected] = useState<any>(null);
+  const [useCanvas, setUseCanvas] = useState(true);
 
   if (loading || !graph) return <div style={{ padding: 20 }}>Loading real formation graph...</div>;
   if (error) return <div style={{ padding: 20, color: TOMATO }}>Error: {error}</div>;
 
+  // LEAN projection for the canvas only -- same array order/length as graph.nodes,
+  // so path-based click resolution below still finds the FULL real object.
+  const leanForRender = {
+    nodes: graph.nodes.map((n: any) => ({ id: n.node_id, class: n.object_class, name: n.display_name, state: n.state })),
+  };
+
+  const handleCanvasNodeClick = (n: NodeData) => {
+    const path = n.path || [];
+    if (path[0] === "nodes" && typeof path[1] === "number") {
+      setSelected(graph.nodes[path[1]]);
+    }
+  };
+
   return (
     <div style={{ display: "flex", height: "calc(100vh - 110px)" }}>
       <div style={{ flex: 1, position: "relative", borderRight: `1px solid #222`, display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: 8, fontSize: 12, background: "#111", borderBottom: "1px solid #222" }}>
-          {graph.formation_id} -- {graph.coverage.normalized_node_count} nodes / {graph.coverage.normalized_edge_count} edges
-          (source_traversable_object_count={graph.coverage.source_traversable_object_count}, content_objects_parsed={graph.coverage.content_objects_parsed})
+        <div style={{ padding: 8, fontSize: 12, background: "#111", borderBottom: "1px solid #222", display: "flex", alignItems: "center", gap: 12 }}>
+          <span>
+            {graph.formation_id} -- {graph.coverage.normalized_node_count} nodes / {graph.coverage.normalized_edge_count} edges
+            (source_traversable_object_count={graph.coverage.source_traversable_object_count}, content_objects_parsed={graph.coverage.content_objects_parsed})
+          </span>
+          <button onClick={() => setUseCanvas((v) => !v)} style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${TOMATO}`, color: TOMATO, borderRadius: 4, padding: "2px 8px", fontSize: 11, cursor: "pointer" }}>
+            {useCanvas ? "switch to list" : "switch to graph canvas"}
+          </button>
         </div>
         <div style={{ flex: 1 }}>
-          <NodeList nodes={graph.nodes} onSelect={setSelected} />
+          {useCanvas
+            ? <JSONCrack json={leanForRender} theme="dark" onNodeClick={handleCanvasNodeClick} style={{ height: "100%" }} />
+            : <NodeList nodes={graph.nodes} onSelect={setSelected} />}
         </div>
       </div>
       <div style={{ width: 380, background: "#111113" }}>
@@ -188,9 +207,17 @@ const STATES = ["POTENTIAL","ELIGIBLE","SCHEDULED","LIVE_HEALTHY","LIVE_EMPTY","
 function CanaryView() {
   const [stateFilter, setStateFilter] = useState("LIVE_HEALTHY");
   const [q, setQ] = useState("");
+  const [useCanvas, setUseCanvas] = useState(true);
   const url = `${API}/api/canaries/google/categories?state=${encodeURIComponent(stateFilter)}${q ? `&q=${encodeURIComponent(q)}` : ""}&limit=100`;
   const { data, loading, error } = useFetch<any>(url);
   const [selected, setSelected] = useState<any>(null);
+
+  const handleCanvasNodeClick = (n: NodeData) => {
+    const path = n.path || [];
+    if (path[0] === "nodes" && typeof path[1] === "number" && data) {
+      setSelected(data.nodes[path[1]]);
+    }
+  };
 
   return (
     <div style={{ display: "flex", height: "calc(100vh - 110px)" }}>
@@ -210,7 +237,10 @@ function CanaryView() {
               {s} {data?.state_distribution?.[s] != null ? `(${data.state_distribution[s]})` : "(0)"}
             </button>
           ))}
-          <input placeholder="search label or id" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginLeft: "auto", background: "#1a1a1c", border: "1px solid #333", color: IVORY, borderRadius: 4, padding: "4px 8px" }} />
+          <input placeholder="search label or id" value={q} onChange={(e) => setQ(e.target.value)} style={{ background: "#1a1a1c", border: "1px solid #333", color: IVORY, borderRadius: 4, padding: "4px 8px" }} />
+          <button onClick={() => setUseCanvas((v) => !v)} style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${TOMATO}`, color: TOMATO, borderRadius: 4, padding: "2px 8px", fontSize: 11, cursor: "pointer" }}>
+            {useCanvas ? "switch to list" : "switch to graph canvas"}
+          </button>
         </div>
         {data && (
           <div style={{ padding: 8, fontSize: 12, color: "#aaa" }}>
@@ -220,7 +250,13 @@ function CanaryView() {
         <div style={{ flex: 1, position: "relative" }}>
           {loading && <div style={{ padding: 20 }}>Loading...</div>}
           {error && <div style={{ padding: 20, color: TOMATO }}>Error: {error}</div>}
-          {data && <NodeList nodes={data.nodes} onSelect={setSelected} />}
+          {data && useCanvas && (
+            <JSONCrack
+              json={{ nodes: data.nodes.map((n: any) => ({ id: n.canary_id, category: n.category_label, state: n.activation_state })) }}
+              theme="dark" onNodeClick={handleCanvasNodeClick} style={{ height: "100%" }} maxRenderableNodes={500}
+            />
+          )}
+          {data && !useCanvas && <NodeList nodes={data.nodes} onSelect={setSelected} />}
         </div>
       </div>
       <div style={{ width: 380, background: "#111113" }}>
