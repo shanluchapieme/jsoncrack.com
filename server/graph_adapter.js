@@ -495,4 +495,56 @@ function buildCategoryCoverageMatrix() {
   };
 }
 
-module.exports = { buildFormationGraph, buildCanaryEstate, buildCategoryCoverageMatrix, AUTHORITY_REPO };
+// Representation Intelligence insight layer -- Joanna's point: a coverage-
+// state matrix is an inventory, not an insight. This is the "so what" layer
+// on top of it. LAW: every number below is READ from the source file at
+// request time, never hand-copied into this code -- if COSRX's real
+// machine_surfaces count changes in KBEAUTY_ROUTING_SPLIT_V1.json, this
+// endpoint's output changes with it, automatically, including brands a human
+// summary might drop (this mechanically includes Paula's Choice, which a
+// hand-written version of this same finding silently omitted).
+//
+// V1 covers exactly ONE category (93, Skin & Nail Care) because exactly one
+// real dataset (the K-beauty routing-economy study, commit 36b81cad6) exists
+// for it. Every other category honestly returns available=false -- this is
+// not "no insight exists anywhere", it's "no insight has been built for you
+// yet", and the two must never be conflated.
+const REPRESENTATION_INSIGHT_CATEGORY_IDS = [93];
+
+function buildRepresentationInsight(categoryId) {
+  if (!REPRESENTATION_INSIGHT_CATEGORY_IDS.includes(categoryId)) {
+    return {
+      available: false,
+      reason: "No representation-intelligence dataset has been built for this category yet -- this is a gap in our coverage, not a claim that nothing is happening here.",
+    };
+  }
+
+  const split = readJson("data/machine_answer/KBEAUTY_ROUTING_SPLIT_V1.json");
+  const vocab = readJson("data/machine_answer/VOCABULARY_ROUTE_DIVERGENCE_V1.json");
+  const s = split.kbeauty_brand_split;
+
+  return {
+    available: true,
+    schema_sources: ["data/machine_answer/KBEAUTY_ROUTING_SPLIT_V1.json", "data/machine_answer/VOCABULARY_ROUTE_DIVERGENCE_V1.json"],
+    produced_at: split._produced_at,
+    hypothesis: split.kbeauty_hypothesis_test.hypothesis,
+    verdict: split.kbeauty_hypothesis_test.verdict,
+    magnitude: split.kbeauty_hypothesis_test.magnitude,
+    headline: `${s.KBEAUTY_MACHINE_ONLY.count}:${s.KBEAUTY_BOTH.count} -- AI recommends ${s.KBEAUTY_MACHINE_ONLY.count} K-beauty brands with zero Google SERP presence; only ${s.KBEAUTY_BOTH.count} brand(s) reach both surfaces.`,
+    machine_only_brands: s.KBEAUTY_MACHINE_ONLY.brands, // mechanically the full real list -- includes Paula's Choice
+    machine_only_count: s.KBEAUTY_MACHINE_ONLY.count,
+    bridge_brands: s.KBEAUTY_BOTH.brands,
+    evidence_for: split.kbeauty_hypothesis_test.evidence_for,
+    evidence_against: split.kbeauty_hypothesis_test.evidence_against,
+    vocabulary_divergence_pairs: vocab.pairs.map((p) => ({
+      pair_id: p.pair_id, title: p.title,
+      query_A: p.query_A, query_A_route: p.query_A_serp_route_class,
+      query_B: p.query_B, query_B_route: p.query_B_serp_route_class,
+      finding: p.divergence.finding,
+    })),
+    poc_safe_fact: split.poc_safe_fact.fact,
+    investor_significance: split.poc_safe_fact.investor_significance,
+  };
+}
+
+module.exports = { buildFormationGraph, buildCanaryEstate, buildCategoryCoverageMatrix, buildRepresentationInsight, AUTHORITY_REPO };

@@ -328,6 +328,9 @@ function CoverageMatrixView() {
     return r;
   }, [data, q, sortMode]);
 
+  const insightUrl = selected ? `${API}/api/insights/category/${selected.category_id}` : null;
+  const { data: insight } = useFetch<any>(insightUrl);
+
   const runWitnessForCategory = async (categoryId: number) => {
     setWitnessLoading(true);
     setWitnessResult(null);
@@ -425,6 +428,54 @@ function CoverageMatrixView() {
             <Panel title="Commerce">{selected.commerce_lens} <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{selected.commerce_detail}</div></Panel>
             <Panel title="UGC / Creators">{selected.ugc_lens} <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{selected.ugc_detail}</div></Panel>
             <Panel title="Saves / Taste">{selected.saves_lens} <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{selected.saves_detail}</div></Panel>
+
+            {insight && (
+              <div style={{ marginTop: 10, marginBottom: 10, padding: 12, background: "#17171a", border: "1px solid #262626", borderRadius: 6 }}>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: TOMATO, marginBottom: 8 }}>Representation Intelligence -- the "so what"</div>
+                {!insight.available ? (
+                  <div style={{ fontSize: 12, color: "#888" }}>{insight.reason}</div>
+                ) : (
+                  <div style={{ fontSize: 12, lineHeight: 1.5, color: "#ccc" }}>
+                    <div style={{ color: IVORY, fontWeight: 600, marginBottom: 6 }}>{insight.headline}</div>
+                    <div style={{ marginBottom: 8 }}>
+                      {insight.hypothesis} -- verdict: <b style={{ color: stateColor("PARTIALLY_EARNED") }}>{insight.verdict}</b>
+                    </div>
+                    <details style={{ marginBottom: 8 }}>
+                      <summary style={{ cursor: "pointer", color: TOMATO }}>
+                        {insight.machine_only_count} AI-recommended brands with zero Google SERP presence
+                      </summary>
+                      <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+                        {insight.machine_only_brands.map((b: any, i: number) => (
+                          <li key={i}>{b.brand} {typeof b.machine_surfaces === "number" ? `-- ${b.machine_surfaces} AI surfaces` : ""}</li>
+                        ))}
+                      </ul>
+                    </details>
+                    <div style={{ marginBottom: 8 }}>
+                      <b style={{ color: IVORY }}>Bridge brand:</b> {insight.bridge_brands.map((b: any) => b.brand).join(", ")}
+                      {insight.bridge_brands[0]?.why_in_both && (
+                        <div style={{ color: "#999", fontSize: 11, marginTop: 2 }}>{insight.bridge_brands[0].why_in_both}</div>
+                      )}
+                    </div>
+                    <details>
+                      <summary style={{ cursor: "pointer", color: TOMATO }}>Vocabulary routing divergence ({insight.vocabulary_divergence_pairs.length} pairs)</summary>
+                      <div style={{ marginTop: 6 }}>
+                        {insight.vocabulary_divergence_pairs.map((p: any) => (
+                          <div key={p.pair_id} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #262626" }}>
+                            <div style={{ color: IVORY }}>{p.title}</div>
+                            <div style={{ color: "#999", fontSize: 11 }}>"{p.query_A}" &rarr; {p.query_A_route}</div>
+                            <div style={{ color: "#999", fontSize: 11 }}>"{p.query_B}" &rarr; {p.query_B_route}</div>
+                            <div style={{ fontSize: 11, marginTop: 2 }}>{p.finding}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                    <div style={{ marginTop: 8, color: "#888", fontSize: 11 }}>
+                      Sources: {insight.schema_sources.join(", ")}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{ marginTop: 16 }}>
               <button onClick={() => runWitnessForCategory(selected.category_id)} disabled={witnessLoading}
