@@ -413,4 +413,86 @@ function buildCanaryEstate() {
   };
 }
 
-module.exports = { buildFormationGraph, buildCanaryEstate, AUTHORITY_REPO };
+// Category Truth Coverage Matrix: all 1,133 Google categories x 4 real lenses.
+// LAW: no fabricated cells. A category with no crosswalked formation gets
+// UNOBSERVED on commerce/ugc/saves -- honestly, because we have never built
+// evidence there, not because we're hiding a green cell. Search is the only
+// lens with total (1,133/1,133) address coverage today, via the live canary
+// registry -- and even that is address coverage, not observation coverage
+// (most are still POTENTIAL, unobserved this epoch).
+function bestMomentState(states) {
+  // Conservative fold: a lens only reads EARNED when EVERY moment folded into
+  // it is EARNED. One partial moment pulls the whole lens down to
+  // PARTIALLY_EARNED -- taking the best of a mixed set would overstate the
+  // lens (e.g. reporting "Commerce: EARNED" when BUY still has real gaps
+  // like Target's BOT_BLOCKED state is exactly the kind of claim inflation
+  // this system exists to refuse).
+  if (!states.length) return "UNOBSERVED";
+  if (states.every((s) => s === "EARNED")) return "EARNED";
+  if (states.some((s) => s === "EARNED" || s === "PARTIALLY_EARNED")) return "PARTIALLY_EARNED";
+  return "NOT_YET_EARNED";
+}
+
+function buildCategoryCoverageMatrix() {
+  const taxonomy = readJson("data/registry/GOOGLE_TRENDS_CATEGORY_TAXONOMY_V1.json").nodes;
+  const canaryReg = readJson("data/registry/GOOGLE_CATEGORY_CANARY_REGISTRY_V1.json");
+  const crosswalk = readJson("data/registry/CATEGORY_FORMATION_CROSSWALK_V1.json").entries;
+  const canaryByCategory = new Map(canaryReg.contracts.map(c => [c.category_id, c]));
+  const crosswalkByCategory = new Map(crosswalk.map(e => [e.category_id, e]));
+
+  // Only ONE formation exists today (Glass Skin) -- read it once, not per row.
+  const formationsById = {};
+  for (const e of crosswalk) {
+    if (formationsById[e.formation_id]) continue;
+    let src;
+    try {
+      src = readJson("data/ops/hot1000/MARKET_FORMATION_GRAPH_GLASS_SKIN_V1.json");
+    } catch (err) {
+      continue;
+    }
+    const m = src.market_moments_with_evidence;
+    formationsById[e.formation_id] = {
+      commerce_lens: bestMomentState([m.SHOP?.state, m.BUY?.state].filter(Boolean)),
+      ugc_lens: bestMomentState([m.WATCH?.state, m.CREATE?.state, m.SHARE?.state].filter(Boolean)),
+      saves_lens: bestMomentState([m.SAVE?.state].filter(Boolean)),
+      commerce_detail: `SHOP=${m.SHOP?.state || "NOT_RECORDED"}, BUY=${m.BUY?.state || "NOT_RECORDED"}`,
+      ugc_detail: `WATCH=${m.WATCH?.state || "NOT_RECORDED"}, CREATE=${m.CREATE?.state || "NOT_RECORDED"}, SHARE=${m.SHARE?.state || "NOT_RECORDED"}`,
+      saves_detail: `SAVE=${m.SAVE?.state || "NOT_RECORDED"}`,
+    };
+  }
+
+  const rows = taxonomy.map(t => {
+    const canary = canaryByCategory.get(t.category_id);
+    const cw = crosswalkByCategory.get(t.category_id);
+    const formation = cw ? formationsById[cw.formation_id] : null;
+    return {
+      category_id: t.category_id,
+      category_label: t.label,
+      search_lens: canary ? canary.activation_state : "NO_CANARY_ADDRESS",
+      search_last_observed: canary ? canary.last_observed_at : null,
+      commerce_lens: formation ? formation.commerce_lens : "UNOBSERVED",
+      commerce_detail: formation ? formation.commerce_detail : "No formation built for this category yet.",
+      ugc_lens: formation ? formation.ugc_lens : "UNOBSERVED",
+      ugc_detail: formation ? formation.ugc_detail : "No formation built for this category yet.",
+      saves_lens: formation ? formation.saves_lens : "UNOBSERVED",
+      saves_detail: formation ? formation.saves_detail : "No formation built for this category yet. Also: the Pinterest Visual Taste Graph Rail is not yet crosswalked to Google's category taxonomy at all -- this lens is structurally dark for every category until that crosswalk exists, not just this one.",
+      formation_id: cw ? cw.formation_id : null,
+      formation_display_name: cw ? cw.formation_display_name : null,
+      crosswalk_match_method: cw ? cw.match_method : null,
+    };
+  });
+
+  return {
+    total_categories: rows.length,
+    lenses: [
+      { key: "search_lens", label: "Search demand", source: "GOOGLE_CATEGORY_CANARY_REGISTRY_V1.json (live)", coverage_note: `${rows.length}/${rows.length} categories addressable; states reflect the live epoch's real per-category observations so far.` },
+      { key: "commerce_lens", label: "Commerce", source: "EXECUTABLE_SUPPLY_GRAPH_RECORDS + RETAILER_ANSWERABILITY (Glass Skin only)", coverage_note: `${crosswalk.length}/${rows.length} categories have any formation built; commerce is a real lens only where a formation exists.` },
+      { key: "ugc_lens", label: "UGC / Creators", source: "TikTok CSI + Falcon creator/video observations (Glass Skin only)", coverage_note: `${crosswalk.length}/${rows.length} categories have any formation built.` },
+      { key: "saves_lens", label: "Saves / Taste", source: "Pinterest Visual Taste Graph Rail -- NOT YET crosswalked to Google categories", coverage_note: "Structurally dark for all 1,133 categories today; the rail exists (10 Worlds seed) but has no category_id mapping yet." },
+    ],
+    crosswalked_formation_count: crosswalk.length,
+    rows,
+  };
+}
+
+module.exports = { buildFormationGraph, buildCanaryEstate, buildCategoryCoverageMatrix, AUTHORITY_REPO };

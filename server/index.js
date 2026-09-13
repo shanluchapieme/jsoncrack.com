@@ -10,7 +10,7 @@
 
 const http = require("http");
 const { spawn } = require("child_process");
-const { buildFormationGraph, buildCanaryEstate } = require("./graph_adapter.js");
+const { buildFormationGraph, buildCanaryEstate, buildCategoryCoverageMatrix } = require("./graph_adapter.js");
 
 const PORT = process.env.PORT || 4127;
 const PYTHON = "python";
@@ -129,6 +129,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, node);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/coverage/matrix") {
+      return json(res, 200, buildCategoryCoverageMatrix());
+    }
+
     if (req.method === "POST" && url.pathname === "/api/next-witness") {
       const body = await readBody(req);
       if (body.category_id == null) return json(res, 400, { error: "category_id is required (Google category domain only in V1)." });
@@ -138,7 +142,8 @@ const server = http.createServer(async (req, res) => {
 
     return json(res, 404, { error: "not found", routes: [
       "GET /api/hot1000", "GET /api/formations/:id", "GET /api/objects/:id",
-      "GET /api/canaries/google/categories", "GET /api/canaries/:id", "POST /api/next-witness",
+      "GET /api/canaries/google/categories", "GET /api/canaries/:id",
+      "GET /api/coverage/matrix", "POST /api/next-witness",
     ]});
   } catch (err) {
     return json(res, 500, { error: String(err && err.message || err) });
