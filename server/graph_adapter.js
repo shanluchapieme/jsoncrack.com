@@ -1,0 +1,416 @@
+// Since Tomorrow addition -- not part of upstream jsoncrack.com
+//
+// Mechanical, deterministic transform: canonical since-tomorrow-os authority
+// artifacts -> ST_MARKET_GRAPH_V1 normalized node/edge contract.
+//
+// LAW: this file only READS from the authority repo. It never writes back.
+// SINCE TOMORROW OS OWNS TRUTH. This is presentation-layer derivation only.
+
+const fs = require("fs");
+const path = require("path");
+
+const AUTHORITY_REPO = "C:/SinceTomorrow/since-tomorrow-os";
+
+function readJson(relPath) {
+  const full = path.join(AUTHORITY_REPO, relPath);
+  return JSON.parse(fs.readFileSync(full, "utf-8"));
+}
+
+function nowIso() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/** Section 17: bounded successor parse of already-committed Glass Skin content evidence. */
+function parseContentObjects() {
+  const nodes = [];
+  const edges = [];
+
+  // Falcon visual evidence -- V2 supersedes V1, use V2 only (its own file says so).
+  const falcon = readJson("data/crawl/tiktok_csi/beauty_us/v1/CSI_FALCON_VISUAL_GLASS_SKIN_T0_V2.json");
+  const video = falcon.resolved_video;
+  if (video && video.video_id) {
+    const videoNodeId = `VIDEO_${video.video_id}`;
+    const creatorNodeId = `CREATOR_${video.creator_handle}`;
+    nodes.push({
+      node_id: videoNodeId,
+      object_id: video.video_id,
+      object_class: "VIDEO",
+      display_name: `TikTok video ${video.video_id}`,
+      market_moment: ["WATCH"],
+      platform: ["TIKTOK"],
+      market: ["US"],
+      category: ["beauty"],
+      state: "IDENTITY_PROVEN",
+      last_observed_at: falcon._epoch || falcon._observed_at?.value || null,
+      claim_ceiling: falcon._instrument || "BROWSER_DOM_VISUAL_READ",
+      source_refs: ["data/crawl/tiktok_csi/beauty_us/v1/CSI_FALCON_VISUAL_GLASS_SKIN_T0_V2.json"],
+      evidence_refs: [video.source || null].filter(Boolean),
+      known: ["Real video ID resolved via direct browser navigation", "Visual frame type observed"],
+      unknown: ["Not confirmed across the full 20-video query set (sample_scope.videos_analyzed_count=1 of total_query_video_count=20)"],
+      expandable: true,
+      available_relations: ["CREATED_BY"],
+    });
+    nodes.push({
+      node_id: creatorNodeId,
+      object_id: video.creator_handle,
+      object_class: "CREATOR",
+      display_name: `@${video.creator_handle}`,
+      market_moment: ["WATCH"],
+      platform: ["TIKTOK"],
+      market: ["US"],
+      category: ["beauty"],
+      state: "OBSERVED",
+      last_observed_at: falcon._epoch || null,
+      claim_ceiling: "Real handle observed via direct video navigation; no follower/engagement corpus attached.",
+      source_refs: ["data/crawl/tiktok_csi/beauty_us/v1/CSI_FALCON_VISUAL_GLASS_SKIN_T0_V2.json"],
+      evidence_refs: [],
+      known: ["Real, resolved TikTok handle"],
+      unknown: ["No creator-level engagement/reach evidence attached in this pass"],
+      expandable: false,
+      available_relations: [],
+    });
+    edges.push({
+      edge_id: `E_${videoNodeId}_CREATED_BY_${creatorNodeId}`,
+      from: videoNodeId,
+      relation: "CREATED_BY",
+      to: creatorNodeId,
+      state: "IDENTITY_PROVEN",
+      observed_at: falcon._epoch || null,
+      evidence_refs: ["data/crawl/tiktok_csi/beauty_us/v1/CSI_FALCON_VISUAL_GLASS_SKIN_T0_V2.json"],
+      claim_ceiling: "Direct browser navigation to the native video URL confirmed this authorship pairing.",
+    });
+  }
+
+  // Cross-surface / editorial proxy rows -- real but lower evidence class; represented as
+  // typed CONTENT_OBJECT-adjacent nodes, not fabricated into VIDEO/CREATOR identity.
+  let surfaceRegistry = null;
+  try {
+    surfaceRegistry = readJson("data/csi/EVERY_SURFACE_REGISTRY_GLASS_SKIN_FOR_OILY_SKIN_V1.json");
+  } catch (e) {
+    surfaceRegistry = null;
+  }
+  if (surfaceRegistry && Array.isArray(surfaceRegistry.rows)) {
+    for (const row of surfaceRegistry.rows) {
+      const nodeId = `SURFACE_${row.surface_id}`;
+      nodes.push({
+        node_id: nodeId,
+        object_id: row.surface_id,
+        object_class: "EVIDENCE_REF",
+        display_name: row.surface_id,
+        market_moment: ["WATCH"],
+        platform: [row.sensor_family || "UNKNOWN"],
+        market: [surfaceRegistry._market || "US"],
+        category: [surfaceRegistry._category || "beauty"],
+        state: row.observation_state === "OBSERVED_CURRENT" ? "OBSERVED" : "CANDIDATE",
+        last_observed_at: row.last_observed || null,
+        claim_ceiling: row.claim_ceiling || "NOT_STATED",
+        source_refs: ["data/csi/EVERY_SURFACE_REGISTRY_GLASS_SKIN_FOR_OILY_SKIN_V1.json"],
+        evidence_refs: [],
+        known: [`sensor_family=${row.sensor_family}`],
+        unknown: [],
+        expandable: false,
+        available_relations: [],
+      });
+    }
+  }
+
+  return { nodes, edges, contentObjectsParsed: nodes.filter(n => n.object_class === "VIDEO" || n.object_class === "CREATOR").length };
+}
+
+function buildFormationGraph() {
+  const src = readJson("data/ops/hot1000/MARKET_FORMATION_GRAPH_GLASS_SKIN_V1.json");
+  const nodes = [];
+  const edges = [];
+
+  const formationNodeId = `FORMATION_${src.formation.formation_id}`;
+  nodes.push({
+    node_id: formationNodeId,
+    object_id: src.formation.formation_id,
+    object_class: "FORMATION",
+    display_name: src.formation.display_name,
+    market_moment: Object.keys(src.market_moments_with_evidence),
+    platform: [],
+    market: [src.formation.market_scope],
+    category: [src.formation.category_scope],
+    state: "OBSERVED",
+    last_observed_at: src._generated_at,
+    claim_ceiling: src.claim_ceiling,
+    source_refs: ["data/ops/hot1000/MARKET_FORMATION_GRAPH_GLASS_SKIN_V1.json"],
+    evidence_refs: [],
+    known: [],
+    unknown: (src.known_unknowns || []),
+    expandable: true,
+    available_relations: ["HAS_MARKET_MOMENT"],
+  });
+
+  // Market moment nodes -- structural, UI_GROUP_ONLY per Section 13's spirit
+  // (these are adapter-created navigation nodes, not source-native objects).
+  for (const [moment, detail] of Object.entries(src.market_moments_with_evidence)) {
+    const momentNodeId = `MOMENT_${moment}`;
+    nodes.push({
+      node_id: momentNodeId,
+      object_id: moment,
+      object_class: "MARKET_MOMENT",
+      display_name: moment,
+      market_moment: [moment],
+      platform: [],
+      market: [src.formation.market_scope],
+      category: [src.formation.category_scope],
+      state: detail.state,
+      last_observed_at: null,
+      claim_ceiling: "UI_GROUP_ONLY -- adapter-created structural navigation node, not a source-native relationship.",
+      source_refs: [],
+      evidence_refs: detail.evidence_refs || [],
+      known: detail.state === "EARNED" ? [detail.evidence] : [],
+      unknown: detail.state === "NOT_YET_EARNED" ? [detail.evidence] : [],
+      expandable: !!(detail.objects && detail.objects.length),
+      available_relations: [],
+    });
+    edges.push({
+      edge_id: `E_${formationNodeId}_HAS_MARKET_MOMENT_${momentNodeId}`,
+      from: formationNodeId,
+      relation: "HAS_MARKET_MOMENT",
+      to: momentNodeId,
+      state: "DERIVED",
+      observed_at: src._generated_at,
+      evidence_refs: [],
+      claim_ceiling: "UI_GROUP_ONLY structural edge, not a source-native relationship.",
+    });
+
+    if (Array.isArray(detail.objects)) {
+      for (const obj of detail.objects) {
+        // ASK moment objects (MACHINE_ROUTE) and FIND moment objects (RETAILER)
+        if (obj.object_class === "MACHINE_ROUTE") {
+          const routeNodeId = `MACHINE_ROUTE_${obj.object_id}`;
+          nodes.push({
+            node_id: routeNodeId,
+            object_id: obj.object_id,
+            object_class: "MACHINE_ROUTE",
+            display_name: obj.provider,
+            market_moment: [moment],
+            platform: [obj.provider],
+            market: [src.formation.market_scope],
+            category: [src.formation.category_scope],
+            state: "OBSERVED",
+            last_observed_at: null,
+            claim_ceiling: "Real machine-answer capture; single observation, not a time series.",
+            source_refs: [obj.surface_file],
+            evidence_refs: [],
+            known: [obj.note].filter(Boolean),
+            unknown: [],
+            expandable: false,
+            available_relations: [],
+          });
+          edges.push({
+            edge_id: `E_${momentNodeId}_REPRESENTED_BY_${routeNodeId}`,
+            from: momentNodeId, relation: "REPRESENTED_BY", to: routeNodeId,
+            state: "OBSERVED", observed_at: null, evidence_refs: [obj.surface_file],
+            claim_ceiling: "Real captured machine-answer observation.",
+          });
+        }
+        if (obj.object_class === "RETAILER") {
+          const retailerNodeId = `RETAILER_${obj.object_id}`;
+          nodes.push({
+            node_id: retailerNodeId,
+            object_id: obj.object_id,
+            object_class: "RETAILER",
+            display_name: obj.object_id,
+            market_moment: [moment],
+            platform: [],
+            market: [src.formation.market_scope],
+            category: [src.formation.category_scope],
+            state: obj.answerability_state === "UNOBSERVABLE" ? "UNRESOLVED" : "OBSERVED",
+            last_observed_at: null,
+            claim_ceiling: obj.answerability_state,
+            source_refs: [obj.evidence_ref],
+            evidence_refs: [],
+            known: [`requirements_resolved=${obj.requirements_resolved}/${obj.requirements_total}`],
+            unknown: obj.requirements_missing ? [`${obj.requirements_missing} requirements unresolved`] : [],
+            expandable: obj.object_id === "TARGET",
+            available_relations: obj.object_id === "TARGET" ? ["HAS_UNKNOWN"] : [],
+          });
+          edges.push({
+            edge_id: `E_${momentNodeId}_REPRESENTED_BY_${retailerNodeId}`,
+            from: momentNodeId, relation: "REPRESENTED_BY", to: retailerNodeId,
+            state: obj.answerability_state === "UNOBSERVABLE" ? "REJECTED" : "OBSERVED",
+            observed_at: null, evidence_refs: [obj.evidence_ref],
+            claim_ceiling: obj.answerability_state,
+          });
+
+          // TARGET overlay: first-class unknown + next-best-witness node (Section 10/11)
+          if (obj.object_id === "TARGET") {
+            const unknownNodeId = "UNKNOWN_TARGET_ROUTE_BLOCK_PERMANENCE";
+            const witnessNodeId = "WITNESS_TARGET_REPROBE";
+            nodes.push({
+              node_id: unknownNodeId,
+              object_id: unknownNodeId,
+              object_class: "UNKNOWN",
+              display_name: "Is Target's product-page block permanent or transient?",
+              market_moment: ["FIND", "SHOP", "BUY"],
+              platform: ["TARGET"],
+              market: [src.formation.market_scope],
+              category: [src.formation.category_scope],
+              state: "UNRESOLVED",
+              last_observed_at: null,
+              claim_ceiling: src.target_overlay.claim_ceiling,
+              source_refs: ["data/ops/hot1000/MARKET_FORMATION_GRAPH_GLASS_SKIN_V1.json"],
+              evidence_refs: [],
+              known: [src.target_overlay.answer],
+              unknown: ["Whether a fresh, authorized re-probe would resolve BOT_BLOCKED to a real product/price observation."],
+              expandable: true,
+              available_relations: ["NEXT_BEST_WITNESS"],
+            });
+            nodes.push({
+              node_id: witnessNodeId,
+              object_id: witnessNodeId,
+              object_class: "WITNESS",
+              display_name: "Re-probe one Target product URL via a fresh authorized session",
+              market_moment: ["FIND", "SHOP", "BUY"],
+              platform: ["TARGET"],
+              market: [src.formation.market_scope],
+              category: [src.formation.category_scope],
+              state: "CANDIDATE",
+              last_observed_at: null,
+              claim_ceiling: "This witness targets the Target retailer road, NOT the Google category canary domain -- the connected canary controller call below only covers the Google domain today; this witness node is informational (Section 21's own scope law).",
+              source_refs: [],
+              evidence_refs: [],
+              known: [],
+              unknown: [],
+              expandable: false,
+              available_relations: [],
+            });
+            edges.push({
+              edge_id: `E_${retailerNodeId}_HAS_UNKNOWN_${unknownNodeId}`,
+              from: retailerNodeId, relation: "HAS_UNKNOWN", to: unknownNodeId,
+              state: "DERIVED", observed_at: nowIso(), evidence_refs: [],
+              claim_ceiling: "Adapter-derived structural edge connecting the real Target evidence to its real open unknown.",
+            });
+            edges.push({
+              edge_id: `E_${unknownNodeId}_NEXT_BEST_WITNESS_${witnessNodeId}`,
+              from: unknownNodeId, relation: "NEXT_BEST_WITNESS", to: witnessNodeId,
+              state: "DERIVED", observed_at: nowIso(), evidence_refs: [],
+              claim_ceiling: "Adapter-derived structural edge, not a source-native relationship.",
+            });
+          }
+        }
+        if (obj.object_class === "PRODUCT") {
+          const productNodeId = `PRODUCT_${obj.object_id}`;
+          nodes.push({
+            node_id: productNodeId,
+            object_id: obj.object_id,
+            object_class: "PRODUCT",
+            display_name: obj.object_id,
+            market_moment: [moment],
+            platform: [],
+            market: [src.formation.market_scope],
+            category: [src.formation.category_scope],
+            state: "OBSERVED",
+            last_observed_at: null,
+            claim_ceiling: "Real supply-graph row(s); price/inventory are point-in-time observations, not a live feed.",
+            source_refs: ["data/ops/commerce/EXECUTABLE_SUPPLY_GRAPH_RECORDS_GLASS_SKIN_V1.ndjson"],
+            evidence_refs: [],
+            known: [`brand_id=${obj.brand_id}`, `${obj.variants.length} variant/retailer row(s)`],
+            unknown: [],
+            expandable: true,
+            available_relations: ["OFFERED_BY"],
+          });
+          edges.push({
+            edge_id: `E_${momentNodeId}_REPRESENTED_BY_${productNodeId}`,
+            from: momentNodeId, relation: "REPRESENTED_BY", to: productNodeId,
+            state: "OBSERVED", observed_at: null, evidence_refs: [],
+            claim_ceiling: "Real supply-graph product row.",
+          });
+          for (const v of obj.variants) {
+            const retailerRef = `RETAILER_${v.retailer}`;
+            edges.push({
+              edge_id: `E_${productNodeId}_OFFERED_BY_${retailerRef}_${v.variant_id}`,
+              from: productNodeId, relation: "OFFERED_BY", to: retailerRef,
+              state: v.edge_state, observed_at: null,
+              evidence_refs: ["data/ops/commerce/EXECUTABLE_SUPPLY_GRAPH_RECORDS_GLASS_SKIN_V1.ndjson"],
+              claim_ceiling: `price_observed=${v.price_observed}, inventory_state=${v.inventory_state}, routeability_state=${v.routeability_state}`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const content = parseContentObjects();
+  // attach content nodes/edges under the WATCH moment
+  for (const n of content.nodes) nodes.push(n);
+  for (const e of content.edges) edges.push(e);
+  const watchMomentId = "MOMENT_WATCH";
+  for (const n of content.nodes) {
+    edges.push({
+      edge_id: `E_${watchMomentId}_REPRESENTED_BY_${n.node_id}`,
+      from: watchMomentId, relation: "REPRESENTED_BY", to: n.node_id,
+      state: n.state === "IDENTITY_PROVEN" ? "IDENTITY_PROVEN" : "CANDIDATE",
+      observed_at: n.last_observed_at, evidence_refs: n.source_refs,
+      claim_ceiling: n.claim_ceiling,
+    });
+  }
+
+  return {
+    graph_id: `ST_MARKET_GRAPH_${src.formation.formation_id}_${nowIso()}`,
+    formation_id: src.formation.formation_id,
+    epoch: src._generated_at,
+    nodes,
+    edges,
+    known_unknowns: src.known_unknowns || [],
+    next_best_witnesses: src.next_best_witnesses || [],
+    coverage: {
+      source_traversable_object_count: src.traversable_object_count,
+      normalized_node_count: nodes.length,
+      normalized_edge_count: edges.length,
+      content_objects_parsed: content.contentObjectsParsed,
+    },
+    claim_ceiling: src.claim_ceiling,
+  };
+}
+
+function buildCanaryEstate() {
+  const reg = readJson("data/registry/GOOGLE_CATEGORY_CANARY_REGISTRY_V1.json");
+  const nodes = reg.contracts.map(c => ({
+    node_id: `CANARY_${c.canary_id}`,
+    object_id: c.canary_id,
+    object_class: "CANARY",
+    display_name: c.category_label,
+    market_moment: [],
+    platform: ["GOOGLE_TRENDS"],
+    market: [c.default_geo_eligibility],
+    category: [],
+    state: c.activation_state,
+    last_observed_at: c.last_observed_at,
+    claim_ceiling: c.claim_ceiling,
+    source_refs: ["data/registry/GOOGLE_CATEGORY_CANARY_REGISTRY_V1.json"],
+    evidence_refs: [c.raw_evidence_ref].filter(Boolean),
+    known: [],
+    unknown: c.decision_unknowns || [],
+    expandable: false,
+    available_relations: [],
+    // extra inspector fields, real, not part of the minimal node contract but preserved:
+    canary_id: c.canary_id,
+    category_id: c.category_id,
+    category_label: c.category_label,
+    taxonomy_path: c.taxonomy_path,
+    parent_id: c.parent_id,
+    taxonomy_depth: c.taxonomy_depth,
+    activation_state: c.activation_state,
+    activation_reason: c.activation_reason,
+    handler_ref: c.handler_ref,
+    execution_profile_ref: c.execution_profile_ref,
+    last_state: c.last_health_state,
+    raw_evidence_ref: c.raw_evidence_ref,
+    decision_unknowns: c.decision_unknowns,
+    next_best_witness: c.next_best_witness,
+  }));
+  return {
+    total_canonical_categories: reg.TOTAL_CONTRACTS,
+    total_contracts: nodes.length,
+    reconciliation_pass: reg.TOTAL_CONTRACTS === nodes.length,
+    state_distribution: reg.activation_state_distribution_snapshot,
+    nodes,
+  };
+}
+
+module.exports = { buildFormationGraph, buildCanaryEstate, AUTHORITY_REPO };

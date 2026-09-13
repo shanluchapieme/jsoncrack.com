@@ -1,3 +1,10 @@
 packages:
   - apps/*
   - packages/*
+
+# Since Tomorrow addition -- not part of upstream jsoncrack.com.
+# Force a single React instance across the whole workspace for apps/market-explorer
+# and packages/jsoncrack-react, avoiding a silent dual-React-copy render failure.
+overrides:
+  react: 18.3.1
+  react-dom: 18.3.1
